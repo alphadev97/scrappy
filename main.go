@@ -1,61 +1,59 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
+	"log"
+	"os"
 
-	"golang.org/x/net/html"
+	"github.com/gocolly/colly"
 )
 
 func main() {
-	var url string
 
-	fmt.Println("Please type website url: ")
-
-	_, err := fmt.Scanln(&url)
+	file, err := os.Create("scraped_content.txt")
 	if err != nil {
-		fmt.Println("Error reading url: ", err)
+		log.Fatal("Could not create file", err)
 	}
 
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = "http://" + url
-	}
+	defer file.Close()
 
-	// fmt.Println(url)
+	c := colly.NewCollector(
+		colly.AllowedDomains("rojrztech.com"),
+	)
 
-	res, err := http.Get(url)
-	if err != nil {
-		fmt.Println("Error fetching url: ", err)
-	}
+	vistied := make(map[string]bool)
 
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println("Error in reading body: ", err)
-	}
-
-	doc, err := html.Parse(bytes.NewReader(body))
-	if err != nil {
-		fmt.Println("Error in parsing HTML: ", err)
-	}
-
-	var f func(*html.Node)
-
-	f = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "h1" {
-			if n.FirstChild != nil {
-				fmt.Printf("%s: %s \n", n.Data, n.FirstChild.Data)
-			}
+	c.OnRequest(func(r *colly.Request) {
+		fmt.Println("Visiting", r.URL.String())
+		_, err := file.WriteString(fmt.Sprintf("Visiting: %s\n", r.URL.String()))
+		if err != nil {
+			log.Fatal("Could not write the file", err)
 		}
+	})
 
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			f(c)
-		}
-	}
+	c.OnHTML("p", func(e *colly.HTMLElement) {
+		fmt.Println("Paargraph: ", e.Text)
+    _, err := file.WriteString(fmt.Sprintf("Paargraph: %s\n", e.Text))
+    if err != nil {
+      log.Fatal("Could not write paragraph", err)
+    }
+	})
 
-	f(doc)
+  c.OnHTML("a[href]", func(e *colly.HTMLElement){
+    link := e.Attr("href")
+    if !vistied[link] {
+      vistied[link] = true
+
+      err := c.Visit(e.Request.AbsoluteURL(link))
+      if err != nil {
+        fmt.Println("Error visiting link", err)
+      }
+    }
+  })
+
+  err = c.Visit("http://rojrztech.com")
+  if err != nil {
+    fmt.Println("Error:", err)
+  }
+
 }
